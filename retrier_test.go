@@ -64,6 +64,24 @@ var _ = Describe("Retrier", func() {
 			Expect(serviceA.startCallCount).To(Equal(2))
 			Expect(serviceA.started).To(BeFalse())
 		})
+
+		It("should load a Configurable service", func() {
+			serviceA := &serviceStartConfigurable{
+				serviceStart: serviceStart{
+					name: "A",
+				},
+			}
+			serviceARetrier := Retrier().Tries(3).Build(serviceA)
+			Expect(serviceARetrier.Name()).To(Equal("Service A"))
+			starter := NewStarter(serviceARetrier)
+			Expect(starter.Start()).To(Succeed())
+			Expect(serviceA.startCallCount).To(Equal(1))
+			Expect(serviceA.started).To(BeTrue())
+			Expect(starter.Stop()).To(Succeed())
+			Expect(serviceA.stopped).To(BeTrue())
+			Expect(serviceA.stopped).To(BeTrue())
+			Expect(serviceA.loaded).To(BeTrue())
+		})
 	})
 
 	Context("StartableWithContext", func() {

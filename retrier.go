@@ -29,13 +29,23 @@ func Retrier() *RetrierBuilder {
 }
 
 // Build creates a new `ServiceRetrier` with
-func (builder *RetrierBuilder) Build(service Service) *ServiceRetrier {
-	return &ServiceRetrier{
+func (builder *RetrierBuilder) Build(service Service) Service {
+	sr := &ServiceRetrier{
 		service:          service,
 		timeout:          builder.timeout,
 		tries:            builder.tries,
 		waitBetweenTries: builder.waitBetweenTries,
 	}
+	if configurable, ok := service.(Configurable); ok {
+		return struct {
+			*ServiceRetrier
+			Configurable
+		}{
+			sr,
+			configurable,
+		}
+	}
+	return sr
 }
 
 // Tries sets the tries for the `Retrier`.

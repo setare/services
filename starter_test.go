@@ -59,6 +59,17 @@ func (s *serviceStart) Start() error {
 	return err
 }
 
+type serviceStartConfigurable struct {
+	serviceStart
+	loaded  bool
+	errLoad error
+}
+
+func (s *serviceStartConfigurable) Load() error {
+	s.loaded = s.errLoad == nil
+	return s.errLoad
+}
+
 type serviceStartWithContext struct {
 	name           string
 	startErr       []error
@@ -131,21 +142,21 @@ var _ = Describe("Starter", func() {
 		It("should interrupt starting services", func() {
 			// 1. Create 3 services
 			serviceA := &serviceStart{
-				name: "A",
+				name:       "A",
 				startDelay: time.Millisecond * 50,
 			}
 			serviceB := &serviceStart{
-				name: "B",
+				name:       "B",
 				startDelay: time.Millisecond * 50,
 			}
 			serviceC := &serviceStart{
-				name: "C",
+				name:       "C",
 				startDelay: time.Millisecond * 100,
 			}
 
 			// 2. Create and Start the Starter
 			starter := NewStarter(serviceA, serviceB, serviceC)
-			go func () {
+			go func() {
 				// 3. Triggers the goroutine to interrupt the starting process before serviceC have chance
 				// of finishing
 				time.Sleep(time.Millisecond * 75)
@@ -169,24 +180,60 @@ var _ = Describe("Starter", func() {
 			Expect(starter.servicesStarted).To(BeEmpty())
 		})
 
-		It("should interrupt starting services with context", func() {
+		It("should interrupt starting services when load fails", func() {
 			// 1. Create 3 services
-			serviceA := &serviceStartWithContext{
+			serviceA := &serviceStart{
 				name: "A",
-				startDelay: time.Millisecond * 50,
 			}
-			serviceB := &serviceStartWithContext{
-				name: "B",
-				startDelay: time.Millisecond * 50,
+			errB := errors.New("error")
+			serviceB := &serviceStartConfigurable{
+				serviceStart: serviceStart{name: "B"},
+				errLoad:      errB,
 			}
-			serviceC := &serviceStartWithContext{
-				name: "C",
+			serviceC := &serviceStart{
+				name:       "C",
 				startDelay: time.Millisecond * 100,
 			}
 
 			// 2. Create and Start the Starter
 			starter := NewStarter(serviceA, serviceB, serviceC)
-			go func () {
+
+			// 4. Checks if the start was cancelled.
+			err := starter.Start()
+			Expect(err).To(Equal(errB))
+
+			// 5. Ensure the services were started.
+			Expect(serviceA.started).To(BeTrue())
+			Expect(serviceB.started).To(BeFalse())
+			Expect(serviceB.loaded).To(BeFalse())
+			Expect(serviceC.started).To(BeFalse()) // Canceled before actually calling the StartWithContext
+
+			// 6. Ensure the services already started were stopped.
+			Expect(serviceA.stopped).To(BeTrue())
+			Expect(serviceB.stopped).To(BeFalse())
+
+			// 7. Ensure the services were started at the right order.
+			Expect(starter.servicesStarted).To(BeEmpty())
+		})
+
+		It("should interrupt starting services with context", func() {
+			// 1. Create 3 services
+			serviceA := &serviceStartWithContext{
+				name:       "A",
+				startDelay: time.Millisecond * 50,
+			}
+			serviceB := &serviceStartWithContext{
+				name:       "B",
+				startDelay: time.Millisecond * 50,
+			}
+			serviceC := &serviceStartWithContext{
+				name:       "C",
+				startDelay: time.Millisecond * 100,
+			}
+
+			// 2. Create and Start the Starter
+			starter := NewStarter(serviceA, serviceB, serviceC)
+			go func() {
 				// 3. Triggers the goroutine to interrupt the starting process before serviceC have chance
 				// of finishing
 				time.Sleep(time.Millisecond * 125)

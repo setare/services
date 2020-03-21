@@ -53,7 +53,7 @@ func (s *Starter) Start() error {
 func (s *Starter) startWithContext(ctx context.Context) (err error) {
 	s.startingMutex.Lock()
 	s.startingCh = make(chan bool)
-	defer func () {
+	defer func() {
 		s.state = starterStateNone
 		close(s.startingCh)
 		s.startingMutex.Unlock()
@@ -84,6 +84,14 @@ func (s *Starter) startWithContext(ctx context.Context) (err error) {
 		default:
 			// This make the select not to block.
 		}
+
+		if srv, ok := service.(Configurable); ok {
+			err = srv.Load()
+			if err != nil {
+				return
+			}
+		}
+
 		if srv, ok := service.(StartableWithContext); ok {
 			// PRIORITY 1: If the service is a StartableWithContext, use it.
 			err = srv.StartWithContext(ctx)
