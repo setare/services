@@ -4,9 +4,15 @@ import (
 	"context"
 	"time"
 
-	. "github.com/onsi/ginkgo"
+	"github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	"github.com/pkg/errors"
+)
+
+var (
+	Describe = ginkgo.Describe
+	Context  = ginkgo.Context
+	It       = ginkgo.It
 )
 
 var _ = Describe("Retrier", func() {

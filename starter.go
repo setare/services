@@ -26,6 +26,7 @@ type Starter struct {
 	ctx             context.Context
 	cancelFunc      context.CancelFunc
 	startingCh      chan bool
+	reporter        Reporter
 }
 
 // NewStarter receives a list of services and returns a new instance of `Starter` configured and ready to be started.
@@ -69,7 +70,14 @@ func (s *Starter) startWithContext(ctx context.Context) (err error) {
 		// services in the reverse order.
 		if err != nil || r != nil {
 			for i := len(s.servicesStarted) - 1; i >= 0; i-- {
-				s.servicesStarted[i].Stop()
+				service := s.servicesStarted[i]
+				if s.reporter != nil {
+					s.reporter.BeforeStop(service)
+				}
+				err := s.servicesStarted[i].Stop()
+				if s.reporter != nil {
+					s.reporter.AfterStop(service, err)
+				}
 				s.servicesStarted = s.servicesStarted[:i]
 			}
 		}
@@ -86,7 +94,13 @@ func (s *Starter) startWithContext(ctx context.Context) (err error) {
 		}
 
 		if srv, ok := service.(Configurable); ok {
+			if s.reporter != nil {
+				s.reporter.BeforeLoad(srv)
+			}
 			err = srv.Load()
+			if s.reporter != nil {
+				s.reporter.AfterLoad(srv, err)
+			}
 			if err != nil {
 				return
 			}
@@ -94,7 +108,13 @@ func (s *Starter) startWithContext(ctx context.Context) (err error) {
 
 		if srv, ok := service.(StartableWithContext); ok {
 			// PRIORITY 1: If the service is a StartableWithContext, use it.
+			if s.reporter != nil {
+				s.reporter.BeforeStart(service)
+			}
 			err = srv.StartWithContext(ctx)
+			if s.reporter != nil {
+				s.reporter.AfterStart(service, err)
+			}
 			if err != nil {
 				return
 			}
@@ -102,7 +122,13 @@ func (s *Starter) startWithContext(ctx context.Context) (err error) {
 			continue
 		} else if srv, ok := service.(Startable); ok {
 			// PRIORITY 2: If the service is a Startable, use it.
+			if s.reporter != nil {
+				s.reporter.BeforeStart(service)
+			}
 			err = srv.Start()
+			if s.reporter != nil {
+				s.reporter.AfterStart(service, err)
+			}
 			if err != nil {
 				return
 			}
@@ -124,11 +150,24 @@ func (s *Starter) Stop() error {
 	}
 	<-s.startingCh // Wait the starting process to be finished.
 	for i := len(s.servicesStarted) - 1; i >= 0; i-- {
-		err := s.servicesStarted[i].Stop()
+		service := s.servicesStarted[i]
+		if s.reporter != nil {
+			s.reporter.BeforeStop(service)
+		}
+		err := service.Stop()
+		if s.reporter != nil {
+			s.reporter.AfterStop(service, err)
+		}
 		if err != nil {
 			return err
 		}
 		s.servicesStarted = s.servicesStarted[:len(s.servicesStarted)-1]
 	}
 	return nil
+}
+
+// WithReporter sets the reporter for this Starter instance, returning it afterwards.
+func (s *Starter) WithReporter(reporter Reporter) *Starter {
+	s.reporter = reporter
+	return s
 }
