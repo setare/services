@@ -9,3 +9,9 @@ type Reporter interface {
 	BeforeLoad(Configurable)
 	AfterLoad(Configurable, error)
 }
+
+type RetrierReporter interface {
+	Reporter
+	BeforeRetry(Service, int)
+	AfterGiveUp(Service, int, error)
+}

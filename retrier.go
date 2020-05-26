@@ -9,16 +9,18 @@ import (
 // fails.
 type ServiceRetrier struct {
 	service          Service
-	tries            uint
+	tries            int
 	timeout          time.Duration
 	waitBetweenTries time.Duration
+	reporter         RetrierReporter
 }
 
 // RetrierBuilder is the helper for building `ServiceRetrier`.
 type RetrierBuilder struct {
-	tries            uint
+	tries            int
 	timeout          time.Duration
 	waitBetweenTries time.Duration
+	reporter         RetrierReporter
 }
 
 // Retrier returns a new `RetrierBuilder` instance.
@@ -35,6 +37,7 @@ func (builder *RetrierBuilder) Build(service Service) Service {
 		timeout:          builder.timeout,
 		tries:            builder.tries,
 		waitBetweenTries: builder.waitBetweenTries,
+		reporter:         builder.reporter,
 	}
 	if configurable, ok := service.(Configurable); ok {
 		return struct {
@@ -49,7 +52,7 @@ func (builder *RetrierBuilder) Build(service Service) Service {
 }
 
 // Tries sets the tries for the `Retrier`.
-func (builder *RetrierBuilder) Tries(value uint) *RetrierBuilder {
+func (builder *RetrierBuilder) Tries(value int) *RetrierBuilder {
 	builder.tries = value
 	return builder
 }
@@ -63,6 +66,12 @@ func (builder *RetrierBuilder) Timeout(value time.Duration) *RetrierBuilder {
 // WaitBetweenTries set the timeout for the `Retrier`.
 func (builder *RetrierBuilder) WaitBetweenTries(value time.Duration) *RetrierBuilder {
 	builder.waitBetweenTries = value
+	return builder
+}
+
+// Reporter set the reporter for the `Retrier`.
+func (builder *RetrierBuilder) Reporter(value RetrierReporter) *RetrierBuilder {
+	builder.reporter = value
 	return builder
 }
 
@@ -87,12 +96,19 @@ func (retrier *ServiceRetrier) StartWithContext(ctx context.Context) error {
 		ctx = ctx2
 		defer cancel()
 	}
-	for i := uint(0); i < retrier.tries; i++ {
+	for i := 0; i < retrier.tries || retrier.tries == -1; i++ {
 		select {
 		case <-ctx.Done():
+			if retrier.reporter != nil {
+				retrier.reporter.AfterGiveUp(retrier.service, i, ctx.Err())
+			}
 			return ctx.Err()
 		default:
 			// This make the select not to block.
+		}
+
+		if i > 0 && retrier.reporter != nil {
+			retrier.reporter.BeforeRetry(retrier.service, i)
 		}
 
 		if service, ok := retrier.service.(StartableWithContext); ok {
@@ -102,6 +118,9 @@ func (retrier *ServiceRetrier) StartWithContext(ctx context.Context) error {
 				return nil
 			} else if ctx.Err() != nil {
 				// If the starting process was cancelled...
+				if retrier.reporter != nil {
+					retrier.reporter.AfterGiveUp(retrier.service, i, ctx.Err())
+				}
 				return ctx.Err()
 			}
 		} else if service, ok := retrier.service.(Startable); ok {
@@ -109,10 +128,15 @@ func (retrier *ServiceRetrier) StartWithContext(ctx context.Context) error {
 			if err == nil {
 				return nil
 			}
+			if retrier.reporter != nil {
+				retrier.reporter.AfterStart(retrier.service, err)
+			}
 		}
 		if retrier.waitBetweenTries > 0 {
 			time.Sleep(retrier.waitBetweenTries)
 		}
 	}
-	return ErrExhaustedAttempts
+	err := ErrExhaustedAttempts
+	retrier.reporter.AfterGiveUp(retrier.service, retrier.tries, err)
+	return err
 }
