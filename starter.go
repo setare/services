@@ -1,10 +1,11 @@
 package services
 
 import (
+	"context"
+	"os"
+	"os/signal"
 	"reflect"
 	"sync"
-
-	"context"
 
 	"github.com/pkg/errors"
 )
@@ -51,103 +52,146 @@ func (s *Starter) Start() error {
 // returned, otherwise, an error.
 //
 // If any error happens, all started processes will be stopped from bottom up.
-func (s *Starter) startWithContext(ctx context.Context) (err error) {
+func (s *Starter) startWithContext(ctx context.Context) error {
 	s.startingMutex.Lock()
-	s.startingCh = make(chan bool)
-	defer func() {
-		s.state = starterStateNone
-		close(s.startingCh)
-		s.startingMutex.Unlock()
-		s.ctx = nil
-		s.cancelFunc = nil
-	}()
-
-	s.state = starterStateStarting
-
-	defer func() {
-		r := recover()
-		// If the return was an error or anything panicked, we should stop the
-		// services in the reverse order.
-		if err != nil || r != nil {
-			for i := len(s.servicesStarted) - 1; i >= 0; i-- {
-				service := s.servicesStarted[i]
-				if s.reporter != nil {
-					s.reporter.BeforeStop(service)
-				}
-				err := s.servicesStarted[i].Stop()
-				if s.reporter != nil {
-					s.reporter.AfterStop(service, err)
-				}
-				s.servicesStarted = s.servicesStarted[:i]
+	err := func() (err error) {
+		cancelStartSignalCh := make(chan os.Signal, 1)
+		signal.Notify(cancelStartSignalCh, os.Interrupt)
+		go func() {
+			// In case the sigterm comes before finishing starting.
+			_, ok := <-cancelStartSignalCh
+			if ok {
+				s.cancelFunc() // Cancel the initialization.
 			}
-		}
-	}()
+		}()
+		defer signal.Stop(cancelStartSignalCh) // Stops listening for interrupt signals
 
-	// Go through all services starting one by one.
-	for _, service := range s.services {
-		select {
-		case <-ctx.Done():
-			err = ctx.Err()
+		s.startingCh = make(chan bool)
+		defer func() {
+			s.state = starterStateNone
+			close(s.startingCh)
+			s.startingMutex.Unlock()
+		}()
+
+		s.state = starterStateStarting
+
+		defer func() {
+			r := recover()
+			// If the return was an error or anything panicked, we should stop the
+			// services in the reverse order.
+			if r != nil {
+				for i := len(s.servicesStarted) - 1; i >= 0; i-- {
+					service := s.servicesStarted[i]
+					if s.reporter != nil {
+						s.reporter.BeforeStop(service)
+					}
+					err := s.servicesStarted[i].Stop()
+					if s.reporter != nil {
+						s.reporter.AfterStop(service, err)
+					}
+					s.servicesStarted = s.servicesStarted[:i]
+				}
+			}
+		}()
+
+		// Go through all services starting one by one.
+		for _, service := range s.services {
+			select {
+			case <-ctx.Done():
+				err = ctx.Err()
+				return
+			default:
+				// This make the select not to block.
+			}
+
+			if srv, ok := service.(Configurable); ok {
+				if s.reporter != nil {
+					s.reporter.BeforeLoad(srv)
+				}
+				err = srv.Load()
+				if s.reporter != nil {
+					s.reporter.AfterLoad(srv, err)
+				}
+				if err != nil {
+					return err
+				}
+			}
+
+			if srv, ok := service.(StartableWithContext); ok {
+				// PRIORITY 1: If the service is a StartableWithContext, use it.
+				if s.reporter != nil {
+					s.reporter.BeforeStart(service)
+				}
+				err = srv.StartWithContext(ctx)
+				if s.reporter != nil {
+					s.reporter.AfterStart(service, err)
+				}
+				if err != nil {
+					return
+				}
+				s.servicesStarted = append(s.servicesStarted, service)
+				continue
+			} else if srv, ok := service.(Startable); ok {
+				// PRIORITY 2: If the service is a Startable, use it.
+				if s.reporter != nil {
+					s.reporter.BeforeStart(service)
+				}
+				err = srv.Start()
+				if s.reporter != nil {
+					s.reporter.AfterStart(service, err)
+				}
+				if err != nil {
+					return
+				}
+				s.servicesStarted = append(s.servicesStarted, service)
+				continue
+			}
+			// The service does not implement neither Startable or StartablWithContext.
+			err = errors.Wrap(ErrNotStartable, reflect.TypeOf(service).String())
 			return
-		default:
-			// This make the select not to block.
 		}
+		return nil
+	}()
 
-		if srv, ok := service.(Configurable); ok {
-			if s.reporter != nil {
-				s.reporter.BeforeLoad(srv)
-			}
-			err = srv.Load()
-			if s.reporter != nil {
-				s.reporter.AfterLoad(srv, err)
-			}
-			if err != nil {
-				return
-			}
-		}
-
-		if srv, ok := service.(StartableWithContext); ok {
-			// PRIORITY 1: If the service is a StartableWithContext, use it.
-			if s.reporter != nil {
-				s.reporter.BeforeStart(service)
-			}
-			err = srv.StartWithContext(ctx)
-			if s.reporter != nil {
-				s.reporter.AfterStart(service, err)
-			}
-			if err != nil {
-				return
-			}
-			s.servicesStarted = append(s.servicesStarted, service)
-			continue
-		} else if srv, ok := service.(Startable); ok {
-			// PRIORITY 2: If the service is a Startable, use it.
-			if s.reporter != nil {
-				s.reporter.BeforeStart(service)
-			}
-			err = srv.Start()
-			if s.reporter != nil {
-				s.reporter.AfterStart(service, err)
-			}
-			if err != nil {
-				return
-			}
-			s.servicesStarted = append(s.servicesStarted, service)
-			continue
-		}
-		// The service does not implement neither Startable or StartablWithContext.
-		err = errors.Wrap(ErrNotStartable, reflect.TypeOf(service).String())
-		return
+	if err != nil {
+		return err
 	}
-	return
+
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt)
+	select {
+	case osSig := <-c:
+		signal.Stop(c)
+		if s.reporter != nil {
+			s.reporter.SignalReceived(osSig)
+		}
+		return s.Stop()
+	case <-s.ctx.Done():
+		signal.Stop(c)
+		errCtx := s.ctx.Err()
+		err := s.Stop()
+		if err != nil {
+			return err
+		}
+		return errCtx
+	}
 }
 
 // Stop will go through all started services, in the opposite order they were started, stopping one by one. If any,
 // failure is detected, the function will stop leaving some started services.
 func (s *Starter) Stop() error {
+	s.reporter.BeforeStop(nil)
 	if s.cancelFunc != nil {
 		s.cancelFunc() // Tries to cancel the starting proccess.
 	}
+
+	defer func() {
+		s.ctx = nil
+		s.cancelFunc = nil
+
+		s.reporter.AfterStop(nil, nil)
+	}()
+
 	<-s.startingCh // Wait the starting process to be finished.
 	for i := len(s.servicesStarted) - 1; i >= 0; i-- {
 		service := s.servicesStarted[i]
