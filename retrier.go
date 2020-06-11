@@ -137,6 +137,8 @@ func (retrier *ServiceRetrier) StartWithContext(ctx context.Context) error {
 		}
 	}
 	err := ErrExhaustedAttempts
-	retrier.reporter.AfterGiveUp(retrier.service, retrier.tries, err)
+	if retrier.reporter != nil {
+		retrier.reporter.AfterGiveUp(retrier.service, retrier.tries, err)
+	}
 	return err
 }

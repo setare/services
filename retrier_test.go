@@ -13,6 +13,7 @@ var (
 	Describe = ginkgo.Describe
 	Context  = ginkgo.Context
 	It       = ginkgo.It
+	FIt      = ginkgo.FIt
 )
 
 var _ = Describe("Retrier", func() {

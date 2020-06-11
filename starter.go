@@ -19,15 +19,15 @@ const (
 // Starter receives a list of `Service` (that should implement `Startable` or `StartableWithContext`) and is responsible
 // for starting them when `Start` or `StartWithContext` is called.
 type Starter struct {
-	services        []Service
-	startingMutex   sync.Mutex
-	startingContext context.Context
-	servicesStarted []Service
-	state           int
-	ctx             context.Context
-	cancelFunc      context.CancelFunc
-	startingCh      chan bool
-	reporter        Reporter
+	services             []Service
+	startingMutex        sync.Mutex
+	startingContext      context.Context
+	servicesStarted      []Service
+	ctx                  context.Context
+	cancelFunc           context.CancelFunc
+	startingCh           chan bool
+	reporter             Reporter
+	givenStartingChannel chan bool
 }
 
 // NewStarter receives a list of services and returns a new instance of `Starter` configured and ready to be started.
@@ -52,135 +52,122 @@ func (s *Starter) Start() error {
 // returned, otherwise, an error.
 //
 // If any error happens, all started processes will be stopped from bottom up.
-func (s *Starter) startWithContext(ctx context.Context) error {
+func (s *Starter) startWithContext(ctx context.Context) (err error) {
 	s.startingMutex.Lock()
-	err := func() (err error) {
-		cancelStartSignalCh := make(chan os.Signal, 1)
-		signal.Notify(cancelStartSignalCh, os.Interrupt)
-		go func() {
-			// In case the sigterm comes before finishing starting.
-			_, ok := <-cancelStartSignalCh
-			if ok {
-				s.cancelFunc() // Cancel the initialization.
-			}
-		}()
-		defer signal.Stop(cancelStartSignalCh) // Stops listening for interrupt signals
-
-		s.startingCh = make(chan bool)
-		defer func() {
-			s.state = starterStateNone
-			close(s.startingCh)
-			s.startingMutex.Unlock()
-		}()
-
-		s.state = starterStateStarting
-
-		defer func() {
-			r := recover()
-			// If the return was an error or anything panicked, we should stop the
-			// services in the reverse order.
-			if r != nil {
-				for i := len(s.servicesStarted) - 1; i >= 0; i-- {
-					service := s.servicesStarted[i]
-					if s.reporter != nil {
-						s.reporter.BeforeStop(service)
-					}
-					err := s.servicesStarted[i].Stop()
-					if s.reporter != nil {
-						s.reporter.AfterStop(service, err)
-					}
-					s.servicesStarted = s.servicesStarted[:i]
-				}
-			}
-		}()
-
-		// Go through all services starting one by one.
-		for _, service := range s.services {
-			select {
-			case <-ctx.Done():
-				err = ctx.Err()
-				return
-			default:
-				// This make the select not to block.
-			}
-
-			if srv, ok := service.(Configurable); ok {
-				if s.reporter != nil {
-					s.reporter.BeforeLoad(srv)
-				}
-				err = srv.Load()
-				if s.reporter != nil {
-					s.reporter.AfterLoad(srv, err)
-				}
-				if err != nil {
-					return err
-				}
-			}
-
-			if srv, ok := service.(StartableWithContext); ok {
-				// PRIORITY 1: If the service is a StartableWithContext, use it.
-				if s.reporter != nil {
-					s.reporter.BeforeStart(service)
-				}
-				err = srv.StartWithContext(ctx)
-				if s.reporter != nil {
-					s.reporter.AfterStart(service, err)
-				}
-				if err != nil {
-					return
-				}
-				s.servicesStarted = append(s.servicesStarted, service)
-				continue
-			} else if srv, ok := service.(Startable); ok {
-				// PRIORITY 2: If the service is a Startable, use it.
-				if s.reporter != nil {
-					s.reporter.BeforeStart(service)
-				}
-				err = srv.Start()
-				if s.reporter != nil {
-					s.reporter.AfterStart(service, err)
-				}
-				if err != nil {
-					return
-				}
-				s.servicesStarted = append(s.servicesStarted, service)
-				continue
-			}
-			// The service does not implement neither Startable or StartablWithContext.
-			err = errors.Wrap(ErrNotStartable, reflect.TypeOf(service).String())
-			return
+	cancelStartSignalCh := make(chan os.Signal, 1)
+	signal.Notify(cancelStartSignalCh, os.Interrupt)
+	go func() {
+		// In case the sigterm comes before finishing starting.
+		_, ok := <-cancelStartSignalCh
+		if ok {
+			s.cancelFunc() // Cancel the initialization.
 		}
-		return nil
 	}()
 
-	if err != nil {
-		return err
-	}
+	s.startingCh = make(chan bool)
+	defer func() {
+		// Stops listening for interrupt signals
+		signal.Stop(cancelStartSignalCh)
 
-	c := make(chan os.Signal, 1)
-	signal.Notify(c, os.Interrupt)
-	select {
-	case osSig := <-c:
-		signal.Stop(c)
-		if s.reporter != nil {
-			s.reporter.SignalReceived(osSig)
+		// Signals the start has been finished.
+		close(s.startingCh)
+
+		// Unlocks
+		s.startingMutex.Unlock()
+
+		if s.givenStartingChannel != nil {
+			close(s.givenStartingChannel)
+			s.givenStartingChannel = nil
 		}
-		return s.Stop()
-	case <-s.ctx.Done():
-		signal.Stop(c)
-		errCtx := s.ctx.Err()
-		err := s.Stop()
-		if err != nil {
-			return err
+	}()
+
+	defer func() {
+		r := recover()
+		// If the return was an error or anything panicked, we should stop the
+		// services in the reverse order.
+		if err != nil || r != nil {
+			for i := len(s.servicesStarted) - 1; i >= 0; i-- {
+				service := s.servicesStarted[i]
+				if s.reporter != nil {
+					s.reporter.BeforeStop(service)
+				}
+				err := s.servicesStarted[i].Stop()
+				if s.reporter != nil {
+					s.reporter.AfterStop(service, err)
+				}
+				s.servicesStarted = s.servicesStarted[:i]
+			}
 		}
-		return errCtx
+		if r != nil {
+			panic(err)
+		}
+	}()
+
+	// Go through all services starting one by one.
+	for _, service := range s.services {
+		select {
+		case <-ctx.Done():
+			err = ctx.Err()
+			return
+		default:
+			// This make the select not to block.
+		}
+
+		if srv, ok := service.(Configurable); ok {
+			if s.reporter != nil {
+				s.reporter.BeforeLoad(srv)
+			}
+			err = srv.Load()
+			if s.reporter != nil {
+				s.reporter.AfterLoad(srv, err)
+			}
+			if err != nil {
+				return err
+			}
+		}
+
+		if srv, ok := service.(StartableWithContext); ok {
+			// PRIORITY 1: If the service is a StartableWithContext, use it.
+			if s.reporter != nil {
+				s.reporter.BeforeStart(service)
+			}
+			err = srv.StartWithContext(ctx)
+			if s.reporter != nil {
+				s.reporter.AfterStart(service, err)
+			}
+			if err != nil {
+				return
+			}
+			s.servicesStarted = append(s.servicesStarted, service)
+			continue
+		} else if srv, ok := service.(Startable); ok {
+			// PRIORITY 2: If the service is a Startable, use it.
+			if s.reporter != nil {
+				s.reporter.BeforeStart(service)
+			}
+			err = srv.Start()
+			if s.reporter != nil {
+				s.reporter.AfterStart(service, err)
+			}
+			if err != nil {
+				return
+			}
+			s.servicesStarted = append(s.servicesStarted, service)
+			continue
+		}
+		// The service does not implement neither Startable or StartablWithContext.
+		err = errors.Wrap(ErrNotStartable, reflect.TypeOf(service).String())
+		return
 	}
+	return nil
 }
 
 // Stop will go through all started services, in the opposite order they were started, stopping one by one. If any,
 // failure is detected, the function will stop leaving some started services.
 func (s *Starter) Stop() error {
-	s.reporter.BeforeStop(nil)
+	if s.reporter != nil {
+		s.reporter.BeforeStop(nil)
+	}
 	if s.cancelFunc != nil {
 		s.cancelFunc() // Tries to cancel the starting proccess.
 	}
@@ -189,7 +176,9 @@ func (s *Starter) Stop() error {
 		s.ctx = nil
 		s.cancelFunc = nil
 
-		s.reporter.AfterStop(nil, nil)
+		if s.reporter != nil {
+			s.reporter.AfterStop(nil, nil)
+		}
 	}()
 
 	<-s.startingCh // Wait the starting process to be finished.
@@ -210,8 +199,36 @@ func (s *Starter) Stop() error {
 	return nil
 }
 
+func (s *Starter) ListenSignals() error {
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt)
+	select {
+	case osSig := <-c:
+		signal.Stop(c)
+		if s.reporter != nil {
+			s.reporter.SignalReceived(osSig)
+		}
+		return s.Stop()
+	case <-s.ctx.Done():
+		signal.Stop(c)
+		errCtx := s.ctx.Err()
+		err := s.Stop()
+		if err != nil {
+			return err
+		}
+		return errCtx
+	}
+}
+
 // WithReporter sets the reporter for this Starter instance, returning it afterwards.
 func (s *Starter) WithReporter(reporter Reporter) *Starter {
 	s.reporter = reporter
+	return s
+}
+
+// WithStartingChannel sets the channel that the Starter will close after
+// finishing the starting process.
+func (s *Starter) WithStartingChannel(ch chan bool) *Starter {
+	s.givenStartingChannel = ch
 	return s
 }
