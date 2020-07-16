@@ -44,7 +44,6 @@ func NewStarter(services ...Service) *Starter {
 // This method uses `StartWithContext`.
 func (s *Starter) Start() error {
 	s.ctx, s.cancelFunc = context.WithCancel(context.Background())
-	defer s.cancelFunc()
 	return s.startWithContext(s.ctx)
 }
 
