@@ -20,7 +20,9 @@ const (
 // for starting them when `Start` or `StartWithContext` is called.
 type Starter struct {
 	services             []Service
+	ctxMutex             sync.Mutex
 	startingMutex        sync.Mutex
+	stoppingMutex        sync.Mutex
 	startingContext      context.Context
 	servicesStarted      []Service
 	ctx                  context.Context
@@ -43,7 +45,9 @@ func NewStarter(services ...Service) *Starter {
 //
 // This method uses `StartWithContext`.
 func (s *Starter) Start() error {
+	s.ctxMutex.Lock()
 	s.ctx, s.cancelFunc = context.WithCancel(context.Background())
+	s.ctxMutex.Unlock()
 	return s.startWithContext(s.ctx)
 }
 
@@ -164,16 +168,29 @@ func (s *Starter) startWithContext(ctx context.Context) (err error) {
 // Stop will go through all started services, in the opposite order they were started, stopping one by one. If any,
 // failure is detected, the function will stop leaving some started services.
 func (s *Starter) Stop() error {
+	// Prevents two stops running at the sabe time
+	s.stoppingMutex.Lock()
+	defer s.stoppingMutex.Unlock()
+
+	s.ctxMutex.Lock()
+	if s.cancelFunc == nil {
+		// Already stopped
+		s.ctxMutex.Unlock()
+		return nil
+	}
+
+	s.cancelFunc() // Tries to cancel the starting proccess.
+	s.ctxMutex.Unlock()
+
 	if s.reporter != nil {
 		s.reporter.BeforeStop(nil)
 	}
-	if s.cancelFunc != nil {
-		s.cancelFunc() // Tries to cancel the starting proccess.
-	}
 
 	defer func() {
+		s.ctxMutex.Lock()
 		s.ctx = nil
 		s.cancelFunc = nil
+		s.ctxMutex.Unlock()
 
 		if s.reporter != nil {
 			s.reporter.AfterStop(nil, nil)
