@@ -3,11 +3,11 @@ package services
 import (
 	"context"
 	"os"
-	"os/signal"
 	"reflect"
 	"sync"
 
 	"github.com/pkg/errors"
+	signals "github.com/setare/go-os-signals"
 )
 
 const (
@@ -20,6 +20,7 @@ const (
 // for starting them when `Start` or `StartWithContext` is called.
 type Starter struct {
 	services             []Service
+	signalListener       signals.Listener
 	ctxMutex             sync.Mutex
 	startingMutex        sync.Mutex
 	stoppingMutex        sync.Mutex
@@ -37,6 +38,7 @@ func NewStarter(services ...Service) *Starter {
 	return &Starter{
 		services:        services,
 		servicesStarted: make([]Service, 0),
+		signalListener:  signals.NewListener(os.Interrupt),
 	}
 }
 
@@ -57,11 +59,9 @@ func (s *Starter) Start() error {
 // If any error happens, all started processes will be stopped from bottom up.
 func (s *Starter) startWithContext(ctx context.Context) (err error) {
 	s.startingMutex.Lock()
-	cancelStartSignalCh := make(chan os.Signal, 1)
-	signal.Notify(cancelStartSignalCh, os.Interrupt)
 	go func() {
 		// In case the sigterm comes before finishing starting.
-		_, ok := <-cancelStartSignalCh
+		_, ok := <-s.signalListener.Receive()
 		if ok {
 			s.cancelFunc() // Cancel the initialization.
 		}
@@ -70,7 +70,7 @@ func (s *Starter) startWithContext(ctx context.Context) (err error) {
 	s.startingCh = make(chan bool)
 	defer func() {
 		// Stops listening for interrupt signals
-		signal.Stop(cancelStartSignalCh)
+		s.signalListener.Stop()
 
 		// Signals the start has been finished.
 		close(s.startingCh)
@@ -216,17 +216,16 @@ func (s *Starter) Stop() error {
 }
 
 func (s *Starter) ListenSignals() error {
-	c := make(chan os.Signal, 1)
-	signal.Notify(c, os.Interrupt)
+	listener := signals.NewListener(os.Interrupt)
 	select {
-	case osSig := <-c:
-		signal.Stop(c)
+	case osSig := <-listener.Receive():
+		listener.Stop()
 		if s.reporter != nil {
 			s.reporter.SignalReceived(osSig)
 		}
 		return s.Stop()
 	case <-s.ctx.Done():
-		signal.Stop(c)
+		listener.Stop()
 		errCtx := s.ctx.Err()
 		err := s.Stop()
 		if err != nil {
