@@ -2,9 +2,11 @@ package services
 
 import (
 	"context"
+	"os"
 	"time"
 
 	"github.com/pkg/errors"
+	signals "github.com/setare/go-os-signals"
 
 	. "github.com/onsi/gomega"
 )
@@ -160,6 +162,50 @@ var _ = Describe("Starter", func() {
 				// of finishing
 				time.Sleep(time.Millisecond * 75)
 				starter.Stop()
+			}()
+
+			// 4. Checks if the start was cancelled.
+			err := starter.Start()
+			Expect(err).To(Equal(context.Canceled))
+
+			// 5. Ensure the services were started.
+			Expect(serviceA.started).To(BeTrue())
+			Expect(serviceB.started).To(BeTrue())
+			Expect(serviceC.started).To(BeFalse()) // Canceled before actually calling the StartWithContext
+
+			// 6. Ensure the services already started were stopped.
+			Expect(serviceA.stopped).To(BeTrue())
+			Expect(serviceB.stopped).To(BeTrue())
+
+			// 7. Ensure the services were started at the right order.
+			Expect(starter.servicesStarted).To(BeEmpty())
+		})
+
+		It("should interrupt starting services with a os.Interrupt", func() {
+			// 1. Create 3 services
+			serviceA := &serviceStart{
+				name:       "A",
+				startDelay: time.Millisecond * 50,
+			}
+			serviceB := &serviceStart{
+				name:       "B",
+				startDelay: time.Millisecond * 50,
+			}
+			serviceC := &serviceStart{
+				name:       "C",
+				startDelay: time.Millisecond * 100,
+			}
+
+			// 2. Create and Start the Starter
+			starter := NewStarter(serviceA, serviceB, serviceC)
+			// Override the default signalListener by a mocked one.
+			mockListener := signals.NewMockListener(os.Interrupt)
+			starter.signalListener = mockListener
+			go func() {
+				// 3. Triggers the goroutine to send a os.Interrupt signal before serviceC have chance
+				// of finishing
+				time.Sleep(time.Millisecond * 75)
+				mockListener.Send(os.Interrupt)
 			}()
 
 			// 4. Checks if the start was cancelled.
@@ -426,6 +472,46 @@ var _ = Describe("Starter", func() {
 
 			// 6. Ensure the started list did not get the service, that could not be stopped, removed from the list.
 			Expect(starter.servicesStarted).To(Equal([]Service{serviceA}))
+		})
+	})
+
+	Describe("ListenToSignals", func() {
+		It("should stop all services when receive an interruption", func() {
+			// 1. Create 3 services
+			serviceA := &serviceStart{
+				name: "A",
+			}
+			serviceB := &serviceStart{
+				name: "B",
+			}
+			serviceC := &serviceStart{
+				name: "C",
+			}
+
+			// 2. Create and Start the Starter
+			starter := NewStarter(serviceA, serviceB, serviceC)
+			Expect(starter.Start()).To(Succeed())
+
+			// 3. Ensure the services were started.
+			Expect(serviceA.started).To(BeTrue())
+			Expect(serviceB.started).To(BeTrue())
+			Expect(serviceC.started).To(BeTrue())
+
+			mockSignalListener := signals.NewMockListener(os.Interrupt)
+
+			go func() {
+				time.Sleep(time.Millisecond * 75)
+				mockSignalListener.Send(os.Interrupt)
+			}()
+
+			Expect(starter.ListenSignals(mockSignalListener)).To(Succeed())
+
+			Expect(serviceA.stopped).To(BeTrue())
+			Expect(serviceB.stopped).To(BeTrue())
+			Expect(serviceC.stopped).To(BeTrue())
+
+			// 4. Ensure the services were started at the right order.
+			Expect(starter.servicesStarted).To(BeEmpty())
 		})
 	})
 })
