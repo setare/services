@@ -215,8 +215,7 @@ func (s *Starter) Stop() error {
 	return nil
 }
 
-func (s *Starter) ListenSignals() error {
-	listener := signals.NewListener(os.Interrupt)
+func (s *Starter) ListenSignals(listener signals.Listener) error {
 	select {
 	case osSig := <-listener.Receive():
 		listener.Stop()
