@@ -7,9 +7,10 @@ import (
 )
 
 type BootstrapRequest struct {
-	Services []Service
-	Signals  []os.Signal
-	Run      func()
+	Services     []Service
+	Signals      []os.Signal
+	Run          func()
+	SetupStarter func(*Starter)
 }
 
 // Bootstrap will start a signal listener listening all `request.Signals`. Then,
@@ -18,6 +19,9 @@ func Bootstrap(req BootstrapRequest) {
 	signalListener := signals.NewListener(req.Signals...)
 
 	s := NewStarter(req.Services...)
+	if req.SetupStarter != nil {
+		req.SetupStarter(s)
+	}
 	if err := s.Start(); err != nil {
 		panic(err)
 	}
