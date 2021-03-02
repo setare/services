@@ -1,1 +1,1 @@
-# services [![Codacy Badge](https://app.codacy.com/project/badge/Grade/e84ffaa1d0be4531bbde4909c666b0bb)](https://www.codacy.com/gh/setare/services/dashboard?utm_source=github.com&utm_medium=referral&utm_content=setare/services&utm_campaign=Badge_Grade)
+# services [![Go Report Card](https://goreportcard.com/badge/github.com/setare/services)](https://goreportcard.com/report/github.com/setare/services)
