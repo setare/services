@@ -1,6 +1,6 @@
 module github.com/setare/services
 
-go 1.14
+go 1.16
 
 require (
 	github.com/novln/macchiato v1.0.1
@@ -8,5 +8,6 @@ require (
 	github.com/onsi/gomega v1.9.0
 	github.com/pkg/errors v0.9.1
 	github.com/setare/go-os-signals v0.1.0
+	github.com/stretchr/testify v1.7.0
 	golang.org/x/net v0.0.0-20200301022130-244492dfa37a // indirect
 )
