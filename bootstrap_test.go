@@ -3,20 +3,18 @@ package services
 import (
 	"errors"
 	"os"
-	"testing"
 
+	. "github.com/onsi/gomega"
 	signals "github.com/setare/go-os-signals"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
-func TestBootstrap(t *testing.T) {
-	t.Run("without SetupStarter", func(t *testing.T) {
+var _ = Describe("Bootstrap", func() {
+	It("should succeed without SetupStarter", func() {
 		run := false
 		setupStarter := false
 		err := Bootstrap(BootstrapRequest{
 			SetupStarter: func(s *Starter) {
-				require.NotNil(t, s)
+				Expect(s).NotTo(BeNil())
 				setupStarter = true
 			},
 			Run: func() error {
@@ -25,19 +23,19 @@ func TestBootstrap(t *testing.T) {
 			},
 		})
 
-		assert.True(t, run)
-		assert.True(t, setupStarter)
-		assert.NoError(t, err, nil)
+		Expect(run).To(BeTrue())
+		Expect(setupStarter).To(BeTrue())
+		Expect(err).ToNot(HaveOccurred())
 	})
 
-	t.Run("with SetupStarter", func(t *testing.T) {
+	It("shuold succeed with SetupStarter", func() {
 		listener := signals.NewMockListener(os.Interrupt)
 		run := false
 		setupStarter := false
 		err := Bootstrap(BootstrapRequest{
 			SignalListener: listener,
 			SetupStarter: func(s *Starter) {
-				require.NotNil(t, s)
+				Expect(s).NotTo(BeNil())
 				setupStarter = true
 			},
 			Run: func() error {
@@ -46,12 +44,12 @@ func TestBootstrap(t *testing.T) {
 			},
 		})
 
-		assert.True(t, run)
-		assert.True(t, setupStarter)
-		assert.NoError(t, err, nil)
+		Expect(run).To(BeTrue())
+		Expect(setupStarter).To(BeTrue())
+		Expect(err).ToNot(HaveOccurred())
 	})
 
-	t.Run("starter failed", func(t *testing.T) {
+	It("should fail when starter failed", func() {
 		wantErr := errors.New("random error")
 
 		failedServer := serviceStart{
@@ -72,7 +70,8 @@ func TestBootstrap(t *testing.T) {
 			},
 		})
 
-		require.False(t, run)
-		require.ErrorIs(t, err, wantErr)
+		Expect(run).To(BeFalse())
+		Expect(err).To(MatchError(wantErr))
 	})
-}
+
+})

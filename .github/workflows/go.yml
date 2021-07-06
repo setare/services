@@ -2,19 +2,19 @@ name: Go
 
 on:
   push:
-    branches: [main]
+    branches: [master]
   pull_request:
-    branches: [main]
+    branches: [master]
 
 jobs:
   build:
     name: Build
     runs-on: ubuntu-latest
     steps:
-      - name: Set up Go 1.15
+      - name: Set up Go 1.16
         uses: actions/setup-go@v2
         with:
-          go-version: ^1.15
+          go-version: ^1.16
         id: go
 
       - name: Check out code into the Go module directory
@@ -23,6 +23,10 @@ jobs:
       - name: Get dependencies
         run: |
           go mod download
+
+      - name: Test
+        run: |
+          go test github.com/onsi/ginkgo/ginkgo -r --randomizeAllSpecs --randomizeSuites --failOnPending --cover --trace --race --progress -coverprofile=coverage.txt
 
       - name: Test
         run: |
