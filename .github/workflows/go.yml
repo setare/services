@@ -23,6 +23,15 @@ jobs:
         run: |
           go mod download
 
+      - name: Go generate
+        run: |
+          go generate ./...
+
+      - name: Check if mocks are updated
+        uses: setare/git-changes-action@v0.1.3
+        with:
+          github_token: ${{ github.token }}
+
       - name: Test
         run: |
           go test github.com/onsi/ginkgo/ginkgo -r --randomizeAllSpecs --randomizeSuites --failOnPending --cover --trace --race --progress -coverprofile=coverage.txt
