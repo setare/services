@@ -5,7 +5,7 @@ import (
 	"os"
 )
 
-// Reporter will be called Before and After some actions by a `Manager`.
+// Reporter will be called Before and After some actions by a `ResourceStarter`.
 type Reporter interface {
 	BeforeStart(context.Context, Service)
 	AfterStart(context.Context, Service, error)

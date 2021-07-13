@@ -1,15 +1,16 @@
-//go:generate go run github.com/golang/mock/mockgen -destination=mocks_test.go -package services_test . ResourceService,Reporter,Configurable,RetrierReporter
-
 package services
 
 import (
 	"context"
-	"io"
+	"os"
+)
+
+var (
+	// DefaultSignals is the list of signals that the ResourceStarter will listen if no listener is specified.
+	DefaultSignals = []os.Signal{os.Interrupt}
 )
 
 // Service is the abstraction of what minimum signature a service must have.
-//
-// ## Why does start is not in the `Service` 
 type Service interface {
 	// Name will return a human identifiable name for this service. Ex: Postgresql Connection.
 	Name() string
@@ -32,10 +33,17 @@ type ResourceService interface {
 	Stop(ctx context.Context) error
 }
 
-// ServerService is the interface the abstracts a blocking service.
+// ServerService is the interface that must be implemented for resourceServices that its start is NOT cancellable.
 type ServerService interface {
 	Service
-	io.Closer
 
-	Serve() error
+	// Listen will start the server service and will block until the service is closed.
+	//
+	// If the services is already listining, this should return an error ErrAlreadyListening.
+	Listen(ctx context.Context) error
+
+	// Close will stop this service.
+	//
+	// If the services has not started, or is already stopped, this should do nothing and just return nil.
+	Close(ctx context.Context) error
 }

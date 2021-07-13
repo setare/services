@@ -1,3 +1,4 @@
+//go:generate go run github.com/golang/mock/mockgen -destination=mocks_test.go -package services_test . ResourceService,ServerService,Reporter,Configurable,RetrierReporter
 package services_test
 
 import (
