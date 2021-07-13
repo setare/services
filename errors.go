@@ -3,9 +3,7 @@ package services
 import "github.com/pkg/errors"
 
 var (
-	// ErrTimeout is returned when starting a service has timedout.
-	ErrTimeout = errors.New("timeout")
-	
-	// ErrExhaustedAttempts is returned when the `Retrier` reached its retry limit for starting a service.
-	ErrExhaustedAttempts = errors.New("exhausted attempts")
+	// ErrAlreadyListening is returned by the ServerStarter when it tries to listen a service that is already
+	// listeining.
+	ErrAlreadyListening = errors.New("service already listening")
 )

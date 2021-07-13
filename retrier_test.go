@@ -102,7 +102,7 @@ var _ = Describe("Retrier", func() {
 				Expect(starter.Start()).To(Succeed())
 				Expect(serviceA.startCallCount).To(Equal(1))
 				Expect(serviceA.started).To(BeTrue())
-				Expect(starter.Stop()).To(Succeed())
+				Expect(starter.Close()).To(Succeed())
 				Expect(serviceA.stopped).To(BeTrue())
 			})
 
