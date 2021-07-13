@@ -1,4 +1,4 @@
-module github.com/setare/services
+module github.com/setare/go-services
 
 go 1.16
 
