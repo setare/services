@@ -9,7 +9,7 @@ import (
 // ResourceServiceRetrier wraps a `Service` in order to provide functionality for retrying in case of its starting process
 // fails.
 type ResourceServiceRetrier struct {
-	service  ResourceService
+	service  Resource
 	reporter RetrierReporter
 	backoff  backoff.BackOff
 }
@@ -28,7 +28,7 @@ func Retrier() *RetrierBuilder {
 }
 
 // Build creates a new `ResourceServiceRetrier` with
-func (builder *RetrierBuilder) Build(service ResourceService) ResourceService {
+func (builder *RetrierBuilder) Build(service Resource) Resource {
 	sr := &ResourceServiceRetrier{
 		service:  service,
 		reporter: builder.reporter,
