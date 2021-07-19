@@ -28,7 +28,7 @@ jobs:
           go generate ./...
 
       - name: Check if mocks are updated
-        uses: setare/git-changes-action@v0.1.3
+        uses: setare/git-changes-action@v0.1.4
         with:
           github_token: ${{ github.token }}
 
