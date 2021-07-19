@@ -6,7 +6,7 @@ import (
 )
 
 var (
-	// DefaultSignals is the list of signals that the ResourceStarter will listen if no listener is specified.
+	// DefaultSignals is the list of signals that the Runner will listen if no listener is specified.
 	DefaultSignals = []os.Signal{os.Interrupt}
 )
 
@@ -16,28 +16,32 @@ type Service interface {
 	Name() string
 }
 
-// ResourceService is the interface that must be implemented for resourceServices that its start is NOT cancellable.
-type ResourceService interface {
+// Resource is the interface that must be implemented for resourceServices that its start is NOT cancellable.
+type Resource interface {
 	Service
 
-	// Start will start the service in a blocking way.
+	// Start will initialize the resource making it ready for use. This method should block until the resource is ready.
+	// It should be implemented on a way so that when Stop is called, this should be cancelled. If that is not possible,
+	// Stop should wait until Start finish before proceeding.
 	//
 	// If the service is successfully started, `nil` should be returned. Otherwise, an error must be returned.
 	Start(ctx context.Context) error
 
-	// Stop will stop this service.
+	// Stop will release this Resource. If it is called while Start still running, Stop should cancel the Start, or then
+	// wait for it to be finished before proceeding.
 	//
-	// For most implementations it will be blocking and should return only when the service finishes stopping.
+	// For most implementations it will be blocking and should return only when the service finishes stopping. This is
+	// important because the Runner relies on it to proceed to the next Resource.
 	//
 	// If the service is successfully stopped, `nil` should be returned. Otherwise, an error must be returned.
 	Stop(ctx context.Context) error
 }
 
-// ServerService is the interface that must be implemented for resourceServices that its start is NOT cancellable.
-type ServerService interface {
+// Server is the interface that must be implemented for resourceServices that its start is NOT cancellable.
+type Server interface {
 	Service
 
-	// Listen will start the server service and will block until the service is closed.
+	// Listen will start the server and will block until the service is closed.
 	//
 	// If the services is already listining, this should return an error ErrAlreadyListening.
 	Listen(ctx context.Context) error

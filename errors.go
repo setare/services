@@ -1,9 +1,9 @@
 package services
 
-import "github.com/pkg/errors"
+import "github.com/setare/go-errors"
 
-var (
-	// ErrAlreadyListening is returned by the ServerStarter when it tries to listen a service that is already
-	// listeining.
-	ErrAlreadyListening = errors.New("service already listening")
+const (
+	// ErrStartCancelledBySignal is returned when Runner.Run receives a shutdown signal while starting the list of
+	// Resource and Server.
+	ErrStartCancelledBySignal = errors.Error("start cancelled by signal")
 )
